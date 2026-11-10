@@ -3,139 +3,262 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f6f6f6">
-  <title>Picture Checklist</title>
+  <meta name="theme-color" content="#111318">
+  <meta name="description" content="A personal image checklist gallery with saved completion progress.">
+  <title>Collection Checklist</title>
   <style>
-    :root { color-scheme: light; --bg:#f6f6f6; --ink:#202020; --muted:#777; --line:#e4e4e4; }
+    :root {
+      color-scheme: dark;
+      --bg: #111318; --panel: #191c23; --panel-2: #20242d;
+      --ink: #f2f3f5; --muted: #a0a6b3; --line: #303541;
+      --accent: #a7e0c0; --accent-ink: #10251b;
+    }
     * { box-sizing: border-box; }
-    body { margin:0; background:var(--bg); color:var(--ink); font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
-    .wrap { width:min(1500px, 100%); margin:0 auto; padding:24px clamp(12px, 2.5vw, 36px) 48px; }
-    header { position:sticky; top:0; z-index:5; background:rgba(246,246,246,.94); backdrop-filter:blur(10px); padding:12px 0 18px; }
-    .topline { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
-    h1 { font-size:clamp(20px,3vw,28px); margin:0; font-weight:700; letter-spacing:-.03em; }
-    .progress-area { display:flex; align-items:center; gap:12px; min-width:min(100%, 330px); }
-    #counter { color:var(--muted); font-size:14px; white-space:nowrap; font-variant-numeric:tabular-nums; }
-    .track { height:8px; flex:1; min-width:80px; background:#e2e2e2; border-radius:99px; overflow:hidden; }
-    #bar { height:100%; width:0; background:#333; border-radius:99px; transition:width .2s ease; }
-    .actions { display:flex; gap:8px; align-items:center; }
-    button { border:1px solid #d5d5d5; background:#fff; color:#333; padding:8px 12px; border-radius:9px; font:inherit; font-size:13px; cursor:pointer; }
-    button:hover { background:#f0f0f0; }
-    button:focus-visible, .tile:focus-visible { outline:3px solid #6b9cff; outline-offset:2px; }
-    #grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; }
-    .tile { display:block; position:relative; overflow:hidden; padding:0; border:0; border-radius:8px; background:#e9e9e9; cursor:pointer; aspect-ratio:488 / 680; }
-    .tile img { display:block; width:100%; height:100%; object-fit:cover; transition:filter .18s ease, opacity .18s ease; }
-    .tile.done img { filter:grayscale(1); opacity:.38; }
-    .tile.done::after { content:"✓"; position:absolute; inset:0; display:grid; place-items:center; color:#fff; font-size:clamp(22px,4vw,42px); font-weight:700; text-shadow:0 1px 8px #0008; pointer-events:none; }
-    .tile.done { background:#777; }
-    .empty { color:var(--muted); padding:40px 12px; text-align:center; }
-    @media (max-width:900px) { #grid { grid-template-columns:repeat(4,minmax(0,1fr)); gap:9px; } }
-    @media (max-width:600px) { .wrap { padding:12px 10px 30px; } header { padding-top:8px; } #grid { grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; } .progress-area { width:100%; } }
-    @media (max-width:380px) { #grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .wrap { width: min(1600px, 100%); margin: 0 auto; padding: 28px clamp(14px, 3vw, 42px) 56px; }
+    header {
+      position: sticky; top: 0; z-index: 5; padding: 18px 0 16px;
+      background: rgba(17,19,24,.94); backdrop-filter: blur(14px);
+      border-bottom: 1px solid rgba(48,53,65,.7);
+    }
+    .header-inner { width: min(1600px, 100%); margin: 0 auto; padding: 0 clamp(14px, 3vw, 42px); }
+    .heading-row { display: flex; justify-content: space-between; align-items: center; gap: 18px; flex-wrap: wrap; }
+    .eyebrow { color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; margin: 0 0 7px; }
+    h1 { margin: 0; font-size: clamp(23px, 3vw, 34px); letter-spacing: -.045em; line-height: 1.05; }
+    .subtitle { color: var(--muted); margin: 8px 0 0; font-size: 13px; }
+    .header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    button, input { font: inherit; }
+    button {
+      border: 1px solid var(--line); background: var(--panel-2); color: var(--ink);
+      padding: 9px 13px; border-radius: 10px; font-size: 12px; font-weight: 650; cursor: pointer;
+      transition: background .15s ease, border-color .15s ease, transform .15s ease;
+    }
+    button:hover { background: #2a303b; border-color: #4a5262; }
+    button:active { transform: translateY(1px); }
+    button:focus-visible, input:focus-visible, .tile:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+    .primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+    .primary:hover { background: #b9efd0; border-color: #b9efd0; }
+    .progress-panel { margin-top: 20px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
+    .progress-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+    #counter { font-size: 13px; font-weight: 750; font-variant-numeric: tabular-nums; }
+    #percent { color: var(--accent); font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .track { height: 9px; background: #303541; border-radius: 99px; overflow: hidden; }
+    #bar { height: 100%; width: 0; background: var(--accent); border-radius: inherit; transition: width .22s ease; }
+    .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 20px 0 14px; flex-wrap: wrap; }
+    .filters { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .filter { background: transparent; color: var(--muted); padding: 8px 12px; }
+    .filter[aria-pressed="true"] { background: var(--panel-2); border-color: #596273; color: var(--ink); }
+    .search-wrap { flex: 1 1 220px; max-width: 340px; }
+    #search { width: 100%; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 13px; }
+    #search::placeholder { color: #858c99; }
+    #grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 13px; }
+    .tile {
+      display: block; position: relative; overflow: hidden; padding: 0; border: 1px solid #343a46;
+      border-radius: 11px; background: #222630; cursor: pointer; aspect-ratio: 488 / 680;
+      text-align: left; isolation: isolate;
+    }
+    .tile img { display: block; width: 100%; height: 100%; object-fit: cover; transition: filter .2s ease, opacity .2s ease, transform .25s ease; }
+    .tile:hover img { transform: scale(1.025); }
+    .tile.done img { filter: grayscale(1); opacity: .36; }
+    .tile.done { border-color: #69756f; background: #59615d; }
+    .tile.done::after {
+      content: "✓"; position: absolute; inset: 0; display: grid; place-items: center;
+      color: #fff; font-size: clamp(28px, 4vw, 48px); font-weight: 800;
+      text-shadow: 0 2px 12px #000b; pointer-events: none;
+    }
+    .tile-name {
+      position: absolute; z-index: 1; left: 0; right: 0; bottom: 0; padding: 24px 9px 9px;
+      color: white; font-size: 11px; line-height: 1.25; font-weight: 700;
+      background: linear-gradient(transparent, rgba(0,0,0,.78)); overflow-wrap: anywhere;
+      opacity: 0; transition: opacity .15s ease;
+    }
+    .tile:hover .tile-name, .tile:focus-visible .tile-name, .tile.done .tile-name { opacity: 1; }
+    .empty { grid-column: 1 / -1; color: var(--muted); text-align: center; padding: 60px 16px; background: var(--panel); border: 1px dashed var(--line); border-radius: 14px; }
+    .footer-note { color: #818997; font-size: 11px; text-align: center; margin: 24px 0 0; }
+    @media (max-width: 1100px) { #grid { grid-template-columns: repeat(5, minmax(0,1fr)); gap: 10px; } }
+    @media (max-width: 800px) { #grid { grid-template-columns: repeat(4, minmax(0,1fr)); gap: 9px; } }
+    @media (max-width: 560px) {
+      .wrap { padding: 16px 10px 36px; } .header-inner { padding: 0 10px; }
+      header { padding-top: 12px; } .header-actions { width: 100%; }
+      .header-actions button { flex: 1; } #grid { grid-template-columns: repeat(3, minmax(0,1fr)); gap: 7px; }
+      .progress-panel { margin-top: 15px; padding: 12px; } .toolbar { align-items: stretch; }
+      .search-wrap { max-width: none; flex-basis: 100%; order: -1; }
+    }
+    @media (max-width: 360px) { #grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
   </style>
 </head>
 <body>
-  <main class="wrap">
-    <header>
-      <div class="topline">
-        <h1>Picture Checklist</h1>
-        <div class="actions">
-          <button id="reset" type="button" title="Mark every picture as not completed">Reset</button>
+  <header>
+    <div class="header-inner">
+      <div class="heading-row">
+        <div>
+          <p class="eyebrow">Your collection</p>
+          <h1>Image Checklist</h1>
+          <p class="subtitle">Tap an image when it’s done. Your progress is saved automatically.</p>
+        </div>
+        <div class="header-actions">
+          <button id="export" type="button" title="Download a backup of your progress">Export progress</button>
+          <button id="reset" type="button">Reset progress</button>
         </div>
       </div>
-      <div class="progress-area" style="margin-top:12px">
-        <span id="counter">Loading…</span>
-        <div class="track" aria-label="Completion progress"><div id="bar"></div></div>
-      </div>
-    </header>
-    <section id="grid" aria-label="Picture checklist"></section>
-    <noscript>This checklist needs JavaScript enabled.</noscript>
+      <section class="progress-panel" aria-label="Completion progress">
+        <div class="progress-top">
+          <span id="counter" aria-live="polite">Loading gallery…</span>
+          <span id="percent">0%</span>
+        </div>
+        <div class="track" role="progressbar" aria-label="Gallery completion" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progress">
+          <div id="bar"></div>
+        </div>
+      </section>
+    </div>
+  </header>
+  <main class="wrap">
+    <div class="toolbar">
+      <nav class="filters" aria-label="Filter images">
+        <button class="filter" data-filter="all" aria-pressed="true">All</button>
+        <button class="filter" data-filter="remaining" aria-pressed="false">Remaining</button>
+        <button class="filter" data-filter="done" aria-pressed="false">Completed</button>
+      </nav>
+      <label class="search-wrap">
+        <input id="search" type="search" placeholder="Search images…" autocomplete="off" aria-label="Search images">
+      </label>
+    </div>
+    <section id="grid" aria-label="Image gallery"></section>
+    <p class="footer-note">Progress is stored in this browser on this device. Use Export progress to keep a backup.</p>
+    <noscript>This gallery needs JavaScript enabled.</noscript>
   </main>
   <script>
     (() => {
-      const STORAGE_KEY = "picture-checklist-completed-v1";
+      "use strict";
+      const STORAGE_KEY = "collection-image-checklist-v2";
       const grid = document.getElementById("grid");
       const counter = document.getElementById("counter");
       const bar = document.getElementById("bar");
+      const percent = document.getElementById("percent");
+      const progress = document.getElementById("progress");
+      const search = document.getElementById("search");
+      let images = [];
       let completed = new Set();
+      let filter = "all";
 
       try {
-        completed = new Set(JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"));
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+        if (Array.isArray(saved)) completed = new Set(saved.filter(v => typeof v === "string"));
       } catch (_) {}
 
       function save() {
-        try { localStorage.setItem(STORAGE_KEY, JSON.stringify([...completed])); }
-        catch (_) { counter.textContent = `${completed.size} completed · browser storage unavailable`; }
-      }
-
-      function updateProgress(total) {
-        const done = Math.min(completed.size, total);
-        counter.textContent = `${done} / ${total} completed`;
-        bar.style.width = total ? `${done / total * 100}%` : "0%";
-      }
-
-      function toggle(path, tile, total) {
-        if (completed.has(path)) {
-          completed.delete(path);
-          tile.classList.remove("done");
-          tile.setAttribute("aria-pressed", "false");
-        } else {
-          completed.add(path);
-          tile.classList.add("done");
-          tile.setAttribute("aria-pressed", "true");
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify([...completed]));
+          return true;
+        } catch (_) {
+          counter.textContent = "Storage unavailable — progress could not be saved";
+          return false;
         }
-        save();
-        updateProgress(total);
       }
+
+      function updateProgress() {
+        const done = images.reduce((n, path) => n + (completed.has(path) ? 1 : 0), 0);
+        const pct = images.length ? Math.round(done / images.length * 100) : 0;
+        counter.textContent = `${done.toLocaleString()} of ${images.length.toLocaleString()} completed`;
+        percent.textContent = `${pct}%`;
+        bar.style.width = `${pct}%`;
+        progress.setAttribute("aria-valuenow", String(pct));
+      }
+
+      function render() {
+        const query = search.value.trim().toLocaleLowerCase();
+        const visible = images.filter(path => {
+          const isDone = completed.has(path);
+          const matchesFilter = filter === "all" || (filter === "done" ? isDone : !isDone);
+          const name = path.split("/").pop().replace(/\.[^.]+$/, "").toLocaleLowerCase();
+          return matchesFilter && name.includes(query);
+        });
+        grid.replaceChildren();
+        if (!visible.length) {
+          const empty = document.createElement("p");
+          empty.className = "empty";
+          empty.textContent = images.length ? "No images match this view." : "No images were found in the gallery.";
+          grid.appendChild(empty);
+          return;
+        }
+        const fragment = document.createDocumentFragment();
+        visible.forEach((path, index) => {
+          const name = path.split("/").pop().replace(/\.[^.]+$/, "");
+          const isDone = completed.has(path);
+          const tile = document.createElement("button");
+          tile.type = "button";
+          tile.className = "tile" + (isDone ? " done" : "");
+          tile.setAttribute("aria-label", `${name}${isDone ? ", completed" : ", not completed"}`);
+          tile.setAttribute("aria-pressed", String(isDone));
+          const img = document.createElement("img");
+          img.src = path;
+          img.alt = name;
+          img.loading = index < 18 ? "eager" : "lazy";
+          img.decoding = "async";
+          const caption = document.createElement("span");
+          caption.className = "tile-name";
+          caption.textContent = name;
+          tile.append(img, caption);
+          tile.addEventListener("click", () => {
+            if (completed.has(path)) completed.delete(path);
+            else completed.add(path);
+            save();
+            updateProgress();
+            render();
+          });
+          fragment.appendChild(tile);
+        });
+        grid.appendChild(fragment);
+      }
+
+      document.querySelectorAll(".filter").forEach(button => {
+        button.addEventListener("click", () => {
+          filter = button.dataset.filter;
+          document.querySelectorAll(".filter").forEach(item => item.setAttribute("aria-pressed", String(item === button)));
+          render();
+        });
+      });
+      search.addEventListener("input", render);
+
+      document.getElementById("reset").addEventListener("click", () => {
+        if (!completed.size || !confirm("Reset all completed images?")) return;
+        completed.clear();
+        save();
+        updateProgress();
+        render();
+      });
+
+      document.getElementById("export").addEventListener("click", () => {
+        const blob = new Blob([JSON.stringify({ version: 1, completed: [...completed] }, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "gallery-progress-backup.json";
+        link.click();
+        URL.revokeObjectURL(url);
+      });
 
       fetch("./images.json")
         .then(response => {
-          if (!response.ok) throw new Error("Could not load images.json");
+          if (!response.ok) throw new Error(`Image list returned ${response.status}`);
           return response.json();
         })
-        .then(images => {
-          if (!Array.isArray(images)) throw new Error("Invalid image list");
-          if (!images.length) {
-            grid.innerHTML = '<p class="empty">No pictures found.</p>';
-            updateProgress(0);
-            return;
-          }
-          const fragment = document.createDocumentFragment();
-          images.forEach((path, index) => {
-            const tile = document.createElement("button");
-            tile.type = "button";
-            tile.className = "tile" + (completed.has(path) ? " done" : "");
-            tile.setAttribute("aria-label", `Picture ${index + 1}`);
-            tile.setAttribute("aria-pressed", completed.has(path) ? "true" : "false");
-            const img = document.createElement("img");
-            img.src = path;
-            img.alt = "";
-            img.loading = index < 15 ? "eager" : "lazy";
-            img.decoding = "async";
-            tile.appendChild(img);
-            tile.addEventListener("click", () => toggle(path, tile, images.length));
-            fragment.appendChild(tile);
-          });
-          grid.appendChild(fragment);
-          updateProgress(images.length);
+        .then(list => {
+          if (!Array.isArray(list)) throw new Error("Invalid image list");
+          images = list.filter(path => typeof path === "string" && path.startsWith("images/"));
+          // Discard saved entries no longer present in this version of the gallery.
+          completed = new Set([...completed].filter(path => images.includes(path)));
+          updateProgress();
+          render();
         })
         .catch(error => {
           console.error(error);
-          grid.innerHTML = '<p class="empty">Could not load the picture list. Make sure images.json and the images folder are in the same repository as this page.</p>';
-          counter.textContent = "Unable to load";
+          counter.textContent = "Could not load gallery";
+          grid.innerHTML = '<p class="empty">Could not load images.json. Make sure index.html, images.json, and the images folder are in the repository root.</p>';
         });
-
-      document.getElementById("reset").addEventListener("click", () => {
-        if (!completed.size) return;
-        if (!confirm("Reset all completed pictures?")) return;
-        completed.clear();
-        document.querySelectorAll(".tile.done").forEach(tile => {
-          tile.classList.remove("done");
-          tile.setAttribute("aria-pressed", "false");
-        });
-        save();
-        const total = document.querySelectorAll(".tile").length;
-        updateProgress(total);
-      });
     })();
   </script>
 </body>
