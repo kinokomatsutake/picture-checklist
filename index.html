@@ -88,7 +88,32 @@
       .search-wrap { max-width: none; flex-basis: 100%; order: -1; }
     }
     @media (max-width: 360px) { #grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
-  </style>
+  
+    .sync-status { color: var(--muted); font-size: 11px; margin-top: 7px; }
+    .sync-status[data-state="ok"] { color: var(--accent); }
+    .sync-status[data-state="error"] { color: #ff9b9b; }
+    .sync-status[data-state="busy"] { color: #f2d28b; }
+    .tile.done { cursor: pointer; }
+    .tile.done::before {
+      content: "🔒"; position: absolute; z-index: 2; top: 8px; right: 8px;
+      font-size: 15px; background: rgba(0,0,0,.58); border-radius: 7px; padding: 4px 6px;
+      pointer-events: none;
+    }
+    .settings-panel {
+      display: none; margin-top: 12px; padding: 14px; border: 1px solid var(--line);
+      border-radius: 12px; background: var(--panel); gap: 10px;
+    }
+    .settings-panel.open { display: grid; }
+    .settings-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
+    .settings-grid label { color: var(--muted); font-size: 11px; display: grid; gap: 5px; }
+    .settings-grid input {
+      width: 100%; min-width: 0; background: var(--bg); color: var(--ink);
+      border: 1px solid var(--line); border-radius: 8px; padding: 9px; font-size: 12px;
+    }
+    .settings-help { color: var(--muted); font-size: 11px; line-height: 1.5; margin: 0; }
+    .settings-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    @media(max-width:560px) { .settings-grid { grid-template-columns: 1fr; } }
+</style>
 </head>
 <body>
   <header>
@@ -97,11 +122,11 @@
         <div>
           <p class="eyebrow">Your collection</p>
           <h1>Image Checklist</h1>
-          <p class="subtitle">Tap an image when it’s done. Your progress is saved automatically.</p>
+          <p class="subtitle">Tap an image to complete it. Completed choices are locked until you confirm you want to undo them.</p>
         </div>
         <div class="header-actions">
-          <button id="export" type="button" title="Download a backup of your progress">Export progress</button>
-          <button id="reset" type="button">Reset progress</button>
+          <button id="settings-toggle" type="button">GitHub sync settings</button>
+          <button id="export" type="button" title="Download a backup of your progress">Export JSON</button>
         </div>
       </div>
       <section class="progress-panel" aria-label="Completion progress">
@@ -111,6 +136,21 @@
         </div>
         <div class="track" role="progressbar" aria-label="Gallery completion" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progress">
           <div id="bar"></div>
+        </div>
+        <div class="sync-status" id="sync-status" data-state="busy">Loading shared progress…</div>
+      </section>
+      <section class="settings-panel" id="settings-panel" aria-label="GitHub sync settings">
+        <strong>Connect this gallery to its GitHub repository</strong>
+        <div class="settings-grid">
+          <label>GitHub owner / username<input id="gh-owner" autocomplete="off" placeholder="your-username"></label>
+          <label>Repository name<input id="gh-repo" autocomplete="off" placeholder="your-repository"></label>
+          <label>Branch<input id="gh-branch" autocomplete="off" value="main"></label>
+          <label>Fine-grained personal access token<input id="gh-token" type="password" autocomplete="new-password" placeholder="github_pat_…"></label>
+        </div>
+        <p class="settings-help">Create a fine-grained token for this repository with Contents: Read and write. The token is saved only in this browser's local storage and is never included in the published files. Do not use this setup on a public/shared computer. Anyone who can access the token on this browser can write to the repository. For a public multi-user app, use a server-side backend instead.</p>
+        <div class="settings-actions">
+          <button class="primary" id="save-settings" type="button">Save settings & sync</button>
+          <button id="close-settings" type="button">Close</button>
         </div>
       </section>
     </div>
@@ -127,139 +167,241 @@
       </label>
     </div>
     <section id="grid" aria-label="Image gallery"></section>
-    <p class="footer-note">Progress is stored in this browser on this device. Use Export progress to keep a backup.</p>
+    <p class="footer-note">Shared progress is stored in <code>progress.json</code> in your GitHub repository. A GitHub token with repository Contents write access is required to update it.</p>
     <noscript>This gallery needs JavaScript enabled.</noscript>
   </main>
-  <script>
-    (() => {
-      "use strict";
-      const STORAGE_KEY = "collection-image-checklist-v2";
-      const grid = document.getElementById("grid");
-      const counter = document.getElementById("counter");
-      const bar = document.getElementById("bar");
-      const percent = document.getElementById("percent");
-      const progress = document.getElementById("progress");
-      const search = document.getElementById("search");
-      let images = [];
-      let completed = new Set();
-      let filter = "all";
+<script>
+(() => {
+  "use strict";
+  const SETTINGS_KEY = "collection-gallery-github-settings-v1";
+  const LOCAL_KEY = "collection-gallery-local-progress-v1";
+  const $ = id => document.getElementById(id);
+  const grid = $("grid"), counter = $("counter"), bar = $("bar"), percent = $("percent");
+  const progress = $("progress"), search = $("search"), status = $("sync-status");
+  let images = [], completed = new Set(), filter = "all", repoSha = null, settings = {};
+  let writeQueue = Promise.resolve();
 
+  const inferredOwner = location.hostname.endsWith(".github.io") ? location.hostname.split(".")[0] : "";
+  const inferredRepo = location.hostname.endsWith(".github.io") ? location.pathname.split("/").filter(Boolean)[0] || "" : "";
+  try { settings = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}"); } catch (_) {}
+  settings.owner ||= inferredOwner;
+  settings.repo ||= inferredRepo;
+  settings.branch ||= "main";
+
+  $("gh-owner").value = settings.owner || "";
+  $("gh-repo").value = settings.repo || "";
+  $("gh-branch").value = settings.branch || "main";
+  $("gh-token").value = settings.token || "";
+
+  function setStatus(message, state="") {
+    status.textContent = message;
+    status.dataset.state = state;
+  }
+  function apiHeaders() {
+    return {
+      "Accept": "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      ...(settings.token ? { "Authorization": `Bearer ${settings.token}` } : {})
+    };
+  }
+  function repoApi(path) {
+    return `https://api.github.com/repos/${encodeURIComponent(settings.owner)}/${encodeURIComponent(settings.repo)}/contents/${path}`;
+  }
+  function validateSettings() {
+    return /^[A-Za-z0-9-]+$/.test(settings.owner || "") &&
+      /^[A-Za-z0-9._-]+$/.test(settings.repo || "") &&
+      /^[A-Za-z0-9._/-]+$/.test(settings.branch || "");
+  }
+  function updateProgress() {
+    const done = images.reduce((n, path) => n + (completed.has(path) ? 1 : 0), 0);
+    const pct = images.length ? Math.round(done / images.length * 100) : 0;
+    counter.textContent = `${done.toLocaleString()} of ${images.length.toLocaleString()} completed`;
+    percent.textContent = `${pct}%`;
+    bar.style.width = `${pct}%`;
+    progress.setAttribute("aria-valuenow", String(pct));
+  }
+  function render() {
+    const query = search.value.trim().toLocaleLowerCase();
+    const visible = images.filter(path => {
+      const done = completed.has(path);
+      const matchFilter = filter === "all" || (filter === "done" ? done : !done);
+      const name = path.split("/").pop().replace(/\.[^.]+$/, "").toLocaleLowerCase();
+      return matchFilter && name.includes(query);
+    });
+    grid.replaceChildren();
+    if (!visible.length) {
+      const empty = document.createElement("p");
+      empty.className = "empty";
+      empty.textContent = images.length ? "No images match this view." : "No images were found.";
+      grid.appendChild(empty); return;
+    }
+    const fragment = document.createDocumentFragment();
+    visible.forEach((path, index) => {
+      const name = path.split("/").pop().replace(/\.[^.]+$/, "");
+      const done = completed.has(path);
+      const tile = document.createElement("button");
+      tile.type = "button";
+      tile.className = "tile" + (done ? " done" : "");
+      tile.setAttribute("aria-label", `${name}${done ? ", completed and locked; activate to request undo" : ", not completed"}`);
+      tile.setAttribute("aria-pressed", String(done));
+      tile.title = done ? "Completed and locked. Click to request undo." : "Mark as completed";
+      const img = document.createElement("img");
+      img.src = path; img.alt = name; img.loading = index < 18 ? "eager" : "lazy"; img.decoding = "async";
+      const caption = document.createElement("span");
+      caption.className = "tile-name"; caption.textContent = name;
+      tile.append(img, caption);
+      tile.addEventListener("click", async () => {
+        if (completed.has(path)) {
+          const yes = confirm(`Unlock "${name}" and change it back to unchecked?`);
+          if (!yes) return;
+          completed.delete(path);
+        } else {
+          completed.add(path);
+        }
+        updateProgress(); render();
+        await saveSharedProgress();
+      });
+      fragment.appendChild(tile);
+    });
+    grid.appendChild(fragment);
+  }
+  function decodeContent(content) {
+    const binary = atob(content.replace(/\n/g, ""));
+    const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  }
+  function encodeContent(text) {
+    const bytes = new TextEncoder().encode(text);
+    let binary = "";
+    bytes.forEach(b => binary += String.fromCharCode(b));
+    return btoa(binary);
+  }
+  async function loadSharedProgress() {
+    if (!validateSettings()) {
+      setStatus("Set your GitHub owner and repository in GitHub sync settings.", "error");
+      return;
+    }
+    setStatus("Loading shared progress from GitHub…", "busy");
+    try {
+      let data, sha = null;
+      if (settings.token) {
+        const response = await fetch(repoApi("progress.json") + `?ref=${encodeURIComponent(settings.branch)}`, { headers: apiHeaders(), cache: "no-store" });
+        if (response.status === 404) {
+          data = null;
+        } else if (!response.ok) {
+          throw new Error(`GitHub read failed (${response.status}). Check repository, branch, and token permissions.`);
+        } else {
+          const file = await response.json(); sha = file.sha; data = JSON.parse(decodeContent(file.content));
+        }
+      } else {
+        const raw = `https://raw.githubusercontent.com/${settings.owner}/${settings.repo}/${settings.branch}/progress.json?t=${Date.now()}`;
+        const response = await fetch(raw, { cache: "no-store" });
+        if (!response.ok) throw new Error("Could not read progress.json. Confirm the repository is public and the file exists; configure a token to create or update it.");
+        data = await response.json();
+      }
+      repoSha = sha;
+      if (data && Array.isArray(data.completed)) {
+        completed = new Set(data.completed.filter(path => typeof path === "string" && images.includes(path)));
+        localStorage.setItem(LOCAL_KEY, JSON.stringify([...completed]));
+      }
+      updateProgress(); render();
+      setStatus(settings.token ? "Shared progress loaded. GitHub write access is configured." : "Shared progress loaded read-only. Add a GitHub token to save changes for everyone.", settings.token ? "ok" : "busy");
+    } catch (error) {
+      console.error(error);
+      setStatus(error.message || "Could not load shared progress.", "error");
+    }
+  }
+  async function saveSharedProgress() {
+    localStorage.setItem(LOCAL_KEY, JSON.stringify([...completed]));
+    if (!validateSettings()) {
+      setStatus("Progress changed on this device only. Configure GitHub sync to share it.", "error"); return;
+    }
+    if (!settings.token) {
+      setStatus("Not synced: add a GitHub token in GitHub sync settings to write progress.json.", "error"); return;
+    }
+    writeQueue = writeQueue.then(async () => {
+      setStatus("Saving shared progress to GitHub…", "busy");
+      const getUrl = repoApi("progress.json") + `?ref=${encodeURIComponent(settings.branch)}`;
+      let sha = null;
+      const getResponse = await fetch(getUrl, { headers: apiHeaders(), cache: "no-store" });
+      if (getResponse.ok) {
+        const current = await getResponse.json(); sha = current.sha;
+      } else if (getResponse.status !== 404) {
+        throw new Error(`Could not read current progress (${getResponse.status}).`);
+      }
+      const document = {
+        version: 1,
+        updatedAt: new Date().toISOString(),
+        completed: [...completed].filter(path => images.includes(path)).sort()
+      };
+      const payload = {
+        message: "Update shared gallery progress",
+        content: encodeContent(JSON.stringify(document, null, 2) + "\n"),
+        branch: settings.branch,
+        ...(sha ? { sha } : {})
+      };
+      const putResponse = await fetch(repoApi("progress.json"), {
+        method: "PUT", headers: { ...apiHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!putResponse.ok) {
+        const detail = await putResponse.json().catch(() => ({}));
+        throw new Error(detail.message || `GitHub save failed (${putResponse.status}).`);
+      }
+      const result = await putResponse.json();
+      repoSha = result.content?.sha || null;
+      setStatus(`Saved to GitHub · ${new Date().toLocaleTimeString()}`, "ok");
+    }).catch(error => {
+      console.error(error);
+      setStatus(`Save failed: ${error.message}`, "error");
+    });
+    await writeQueue;
+  }
+
+  document.querySelectorAll(".filter").forEach(button => button.addEventListener("click", () => {
+    filter = button.dataset.filter;
+    document.querySelectorAll(".filter").forEach(item => item.setAttribute("aria-pressed", String(item === button)));
+    render();
+  }));
+  search.addEventListener("input", render);
+  $("settings-toggle").addEventListener("click", () => $("settings-panel").classList.toggle("open"));
+  $("close-settings").addEventListener("click", () => $("settings-panel").classList.remove("open"));
+  $("save-settings").addEventListener("click", async () => {
+    settings = {
+      owner: $("gh-owner").value.trim(),
+      repo: $("gh-repo").value.trim(),
+      branch: $("gh-branch").value.trim() || "main",
+      token: $("gh-token").value.trim()
+    };
+    if (!validateSettings()) { setStatus("Enter a valid GitHub owner, repository, and branch.", "error"); return; }
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    $("settings-panel").classList.remove("open");
+    await loadSharedProgress();
+    if (settings.token) await saveSharedProgress();
+  });
+  $("export").addEventListener("click", () => {
+    const data = { version: 1, updatedAt: new Date().toISOString(), completed: [...completed].sort() };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob), link = document.createElement("a");
+    link.href = url; link.download = "progress-backup.json"; link.click(); URL.revokeObjectURL(url);
+  });
+
+  fetch("./images.json").then(r => { if (!r.ok) throw new Error("Could not load images.json"); return r.json(); })
+    .then(list => {
+      if (!Array.isArray(list)) throw new Error("Invalid images.json");
+      images = list.filter(path => typeof path === "string" && path.startsWith("images/"));
       try {
-        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-        if (Array.isArray(saved)) completed = new Set(saved.filter(v => typeof v === "string"));
+        const local = JSON.parse(localStorage.getItem(LOCAL_KEY) || "[]");
+        if (Array.isArray(local)) completed = new Set(local.filter(path => images.includes(path)));
       } catch (_) {}
-
-      function save() {
-        try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify([...completed]));
-          return true;
-        } catch (_) {
-          counter.textContent = "Storage unavailable — progress could not be saved";
-          return false;
-        }
-      }
-
-      function updateProgress() {
-        const done = images.reduce((n, path) => n + (completed.has(path) ? 1 : 0), 0);
-        const pct = images.length ? Math.round(done / images.length * 100) : 0;
-        counter.textContent = `${done.toLocaleString()} of ${images.length.toLocaleString()} completed`;
-        percent.textContent = `${pct}%`;
-        bar.style.width = `${pct}%`;
-        progress.setAttribute("aria-valuenow", String(pct));
-      }
-
-      function render() {
-        const query = search.value.trim().toLocaleLowerCase();
-        const visible = images.filter(path => {
-          const isDone = completed.has(path);
-          const matchesFilter = filter === "all" || (filter === "done" ? isDone : !isDone);
-          const name = path.split("/").pop().replace(/\.[^.]+$/, "").toLocaleLowerCase();
-          return matchesFilter && name.includes(query);
-        });
-        grid.replaceChildren();
-        if (!visible.length) {
-          const empty = document.createElement("p");
-          empty.className = "empty";
-          empty.textContent = images.length ? "No images match this view." : "No images were found in the gallery.";
-          grid.appendChild(empty);
-          return;
-        }
-        const fragment = document.createDocumentFragment();
-        visible.forEach((path, index) => {
-          const name = path.split("/").pop().replace(/\.[^.]+$/, "");
-          const isDone = completed.has(path);
-          const tile = document.createElement("button");
-          tile.type = "button";
-          tile.className = "tile" + (isDone ? " done" : "");
-          tile.setAttribute("aria-label", `${name}${isDone ? ", completed" : ", not completed"}`);
-          tile.setAttribute("aria-pressed", String(isDone));
-          const img = document.createElement("img");
-          img.src = path;
-          img.alt = name;
-          img.loading = index < 18 ? "eager" : "lazy";
-          img.decoding = "async";
-          const caption = document.createElement("span");
-          caption.className = "tile-name";
-          caption.textContent = name;
-          tile.append(img, caption);
-          tile.addEventListener("click", () => {
-            if (completed.has(path)) completed.delete(path);
-            else completed.add(path);
-            save();
-            updateProgress();
-            render();
-          });
-          fragment.appendChild(tile);
-        });
-        grid.appendChild(fragment);
-      }
-
-      document.querySelectorAll(".filter").forEach(button => {
-        button.addEventListener("click", () => {
-          filter = button.dataset.filter;
-          document.querySelectorAll(".filter").forEach(item => item.setAttribute("aria-pressed", String(item === button)));
-          render();
-        });
-      });
-      search.addEventListener("input", render);
-
-      document.getElementById("reset").addEventListener("click", () => {
-        if (!completed.size || !confirm("Reset all completed images?")) return;
-        completed.clear();
-        save();
-        updateProgress();
-        render();
-      });
-
-      document.getElementById("export").addEventListener("click", () => {
-        const blob = new Blob([JSON.stringify({ version: 1, completed: [...completed] }, null, 2)], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = "gallery-progress-backup.json";
-        link.click();
-        URL.revokeObjectURL(url);
-      });
-
-      fetch("./images.json")
-        .then(response => {
-          if (!response.ok) throw new Error(`Image list returned ${response.status}`);
-          return response.json();
-        })
-        .then(list => {
-          if (!Array.isArray(list)) throw new Error("Invalid image list");
-          images = list.filter(path => typeof path === "string" && path.startsWith("images/"));
-          // Discard saved entries no longer present in this version of the gallery.
-          completed = new Set([...completed].filter(path => images.includes(path)));
-          updateProgress();
-          render();
-        })
-        .catch(error => {
-          console.error(error);
-          counter.textContent = "Could not load gallery";
-          grid.innerHTML = '<p class="empty">Could not load images.json. Make sure index.html, images.json, and the images folder are in the repository root.</p>';
-        });
-    })();
-  </script>
+      updateProgress(); render();
+      return loadSharedProgress();
+    })
+    .catch(error => {
+      console.error(error); setStatus(error.message, "error");
+      grid.innerHTML = '<p class="empty">Could not load images.json. Keep index.html, images.json, progress.json, and the images folder in the repository root.</p>';
+    });
+})();
+</script>
 </body>
 </html>

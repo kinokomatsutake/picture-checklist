@@ -1,47 +1,47 @@
-# Image Checklist Gallery — GitHub Pages
+# Shared Image Checklist Gallery
 
-A responsive image checklist containing **348 images** from the supplied archive.
+Updated from your latest `collection.zip`. This version contains **344 images**.
 
 ## Features
 
-- Tap/click an image to mark it completed; completed images become greyed out with a checkmark.
-- Tap again to undo completion.
-- Live completion count, percentage, and progress bar.
-- Filter by All, Remaining, or Completed.
-- Search image filenames.
-- Reset progress and export a JSON backup.
-- Automatically saves progress in browser `localStorage`.
-- Responsive layout for desktop, tablet, and mobile.
+- New image collection and rebuilt `images.json` manifest.
+- Click an uncompleted image to mark it complete (greyed out and locked).
+- Clicking a completed image asks for confirmation before unchecking it.
+- Live completion count and progress bar.
+- Search and All / Remaining / Completed filters.
+- `progress.json` is the shared source of truth stored in this repository.
+- GitHub API sync reads and writes `progress.json`.
+- Export a JSON backup at any time.
 
-## Publish on GitHub Pages
+## Publish / update on GitHub Pages
 
-1. Create a GitHub repository (for example, `image-checklist`).
-2. Extract this ZIP on your computer.
-3. Upload **the contents** of the extracted folder to the repository root:
-   - `index.html`
-   - `images.json`
-   - the complete `images/` folder
-4. Commit the files to the `main` branch.
-5. In the repository, open **Settings → Pages**.
-6. Under **Build and deployment**, choose **Deploy from a branch**.
-7. Select branch **main** and folder **/(root)**, then click **Save**.
-8. Wait for deployment. Your gallery will be available at:
-   `https://YOUR-USERNAME.github.io/REPOSITORY-NAME/`
-
-## How progress is saved
-
-Progress is saved automatically in the browser's local storage for the published website. It remains after refreshes and browser restarts on that same browser/device.
-
-**Important:** GitHub Pages only serves static files. It cannot write visitor progress back into the GitHub repository, and browser local storage does not sync across devices or browsers. Use **Export progress** to download a backup. Shared or cross-device progress requires connecting a backend/database (such as Supabase or Firebase) and configuring it with your own project credentials.
-
-## Project structure
+Upload or replace the repository-root files and `images/` folder with the contents of this ZIP. Keep the files at the repository root:
 
 ```text
 .
 ├── index.html
 ├── images.json
+├── progress.json
 └── images/
-    └── ... 348 image files
 ```
 
-The image manifest was rebuilt from the actual files in the archive so the gallery does not reference missing image paths.
+Then let GitHub Pages deploy the new commit.
+
+## Enable shared repository saving
+
+GitHub Pages is static hosting: a webpage cannot commit to its repository anonymously. To let the gallery update `progress.json`:
+
+1. On GitHub, open **Settings → Developer settings → Personal access tokens → Fine-grained tokens**.
+2. Create a token limited to this one repository.
+3. Grant **Contents: Read and write** (Metadata read-only is normally added automatically).
+4. Open the published gallery and click **GitHub sync settings**.
+5. Enter the GitHub owner, repository name, branch (usually `main`), and token.
+6. Click **Save settings & sync**.
+
+The token is stored in the browser's local storage, not in the repository files. Configure it on every device/browser that needs to make changes. Devices without a token can still read the public repository's shared `progress.json`, but cannot update it.
+
+**Security note:** A token in a browser is suitable only for a trusted personal/private workflow. Anyone with access to that browser profile could potentially use the token. Do not expose the token in source code, commit it, or use this design for an untrusted public multi-user application. For public multi-user writes, use a backend (for example, Supabase or a small authenticated server) instead.
+
+## Initial progress
+
+`progress.json` has been seeded from `gallery-progress-backup.json` in the uploaded archive, retaining only completed paths that still exist in the updated image collection. It is the shared progress file used by the gallery.
